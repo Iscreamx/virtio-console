@@ -1,0 +1,20 @@
+[package]
+name = "arceos-helloworld"
+version = "0.1.0"
+edition.workspace = true
+authors = ["Yuekai Jia <equation618@gmail.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+#[features]
+#irq = ["axhal/irq"]
+#default = ["irq"]
+
+[dependencies]
+axstd = { path = "../../ulib/axstd" }
+axaddrspace = "0.1"
+virtio-drivers = "0.7.0"
+axhal = { path = "../../modules/axhal" }
+axhvc = { path = "/home/iscreamx/vscode/axvisor/crates/axhvc" }
+arceos_api = { path = "../../api/arceos_api", features = ["dma"] }
+fdt = "0.1.5"
