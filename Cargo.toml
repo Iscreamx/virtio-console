@@ -17,5 +17,5 @@ memory_addr = "0.4"
 axvmconfig = { version = "0.1", default-features = false }
 axaddrspace = "0.1"
 axdevice_base = "0.1"
-axhal = {git = "https://github.com/arceos-hypervisor/arceos.git", tag = "hv-0.4.1"}
+axhal = {git = "https://github.com/arceos-org/arceos.git", tag = "dev-251216"}
 
