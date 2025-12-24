@@ -355,56 +355,43 @@ impl VirtioConsole {
     fn process_rx_queue(&self, state: &mut VirtioConsoleState) {
         let queue = &mut state.queues[0]; // RX Queue
 
-        // Check connection info
         let conn_guard = self.connection.lock();
         if let Some(conn) = conn_guard.as_ref() {
-            for (&vm_id, &buffer_addr) in conn.recv_vm_ids.iter().zip(conn.recv_buffers.iter()) {
-                // [Modification] Read index from header
+            for (&_vm_id, &buffer_addr) in conn.recv_vm_ids.iter().zip(conn.recv_buffers.iter()) {
                 let header = unsafe { &*(buffer_addr as *const RingBufferHeader) };
                 let data_ptr = (buffer_addr + core::mem::size_of::<RingBufferHeader>()) as *const u8;
                 let capacity = conn.buffer_size - core::mem::size_of::<RingBufferHeader>();
 
-                // Get current index
-                let w_idx = header.write_idx.load(Ordering::Acquire);
-                let mut r_idx = header.read_idx.load(Ordering::Acquire);
+                while (header.write_idx.load(Ordering::Acquire) - header.read_idx.load(Ordering::Acquire)) > 0 {
+                    if let Some(head_idx) = queue.pop_available(self.translate()) {
+                        let mut r_idx = header.read_idx.load(Ordering::Acquire);
+                        let w_idx = header.write_idx.load(Ordering::Acquire);
+                        let available = (w_idx - r_idx) as usize;
 
-                // Calculate available data
-                let available = (w_idx - r_idx) as usize;
-                if available == 0 {
-                    continue;
-                }
+                        let desc = queue.get_descriptor(head_idx, self.translate()).unwrap();
+                        let gpa = desc.addr as usize;
+                        let (hpa, _) = (self.translate_fn)(GuestPhysAddr::from(gpa)).unwrap();
+                        let hva = hpa.as_usize() as *mut u8;
 
-                // info!("Processing RX data from VM[{}] at buffer {:#x}, available: {}", vm_id, buffer_addr, available);
+                        let copy_len = desc.len.min(available as u32) as usize;
 
-                if let Some(head_idx) = queue.pop_available(self.translate()) {
-                    let desc = queue.get_descriptor(head_idx, self.translate()).unwrap();
-                    let gpa = desc.addr as usize;
-                    let (hpa, _) = (self.translate_fn)(GuestPhysAddr::from(gpa)).unwrap();
-                    let hva = hpa.as_usize() as *mut u8;
-                    
-                    // Calculate how much data can be copied this time
-                    let copy_len = desc.len.min(available as u32) as usize;
-                    
-                    // Read data from ring buffer
-                    for i in 0..copy_len {
-                        unsafe {
-                            *hva.add(i) = *data_ptr.add((r_idx as usize) % capacity);
+                        for i in 0..copy_len {
+                            unsafe {
+                                *hva.add(i) = *data_ptr.add((r_idx as usize) % capacity);
+                            }
+                            r_idx += 1;
                         }
-                        r_idx += 1;
+
+                        header.read_idx.store(r_idx, Ordering::Release);
+                        let _ = queue.add_used(head_idx, copy_len as u32, self.translate());
+
+                        // state.interrupt_status |= VIRTIO_MMIO_INT_VRING;
+                    } else {
+                        break;
                     }
-
-                    // Update read pointer
-                    header.read_idx.store(r_idx, Ordering::Release);
-
-                    let _ = queue.add_used(head_idx, copy_len as u32, self.translate());
-                    // state.interrupt_status |= VIRTIO_MMIO_INT_VRING;
-                    // info!("Copied {} bytes from recv buffer of VM[{}]", copy_len, vm_id);
                 }
             }
-        } else {
-            // info!("No DeviceConsoleConnection configured for RX processing");
         }
-
     }
 
     fn notify_queue(&self, queue_idx: u32) {
