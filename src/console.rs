@@ -283,16 +283,20 @@ impl VirtioConsole {
                     break;
                 }
                 if (desc.flags & VRING_DESC_F_WRITE) == 0 && desc.len > 0 {
-                    let gpa = desc.addr as usize;
-                    if !self.is_valid_guest_address(GuestPhysAddr::from(gpa), desc.len as usize) {
-                        valid_chain = false;
-                        break;
+                    let gpa = GuestPhysAddr::from(desc.addr as usize);
+                    match (self.translate_fn)(gpa) {
+                        Some((hpa, limit)) => {
+                            let hva = hpa.as_usize() as *const u8;
+                            let data_len = desc.len.min(limit as u32) as usize;
+                            let data = unsafe { core::slice::from_raw_parts(hva, data_len) };
+                            received_data.extend_from_slice(data);
+                        }
+                        None => {
+                            warn!("VirtioConsole: Invalid GPA {:#x} in TX descriptor", gpa);
+                            valid_chain = false;
+                            break;
+                        }
                     }
-                    let (hpa, limit) = (self.translate_fn)(GuestPhysAddr::from(gpa)).unwrap();
-                    let hva = hpa.as_usize() as *const u8;
-                    let data_len = desc.len.min(limit as u32) as usize;
-                    let data = unsafe { core::slice::from_raw_parts(hva, data_len) };
-                    received_data.extend_from_slice(data);
                 }
                 if (desc.flags & VRING_DESC_F_NEXT) == 0 {
                     break;
@@ -417,20 +421,6 @@ impl VirtioConsole {
             0 => {},
             _ => warn!("VirtioConsole: notify on unsupported queue {}", queue_idx),
         }
-    }
-
-    fn is_valid_guest_address(&self, gpa: GuestPhysAddr, len: usize) -> bool {
-        let addr = gpa.as_usize();
-        const GUEST_MEM_START: usize = 0x4000_0000;
-        const GUEST_MEM_END: usize = 0x8000_0000;
-
-        if addr < GUEST_MEM_START || addr >= GUEST_MEM_END {
-            return false;
-        }
-        if addr.checked_add(len).is_none() {
-            return false;
-        }
-        true
     }
 
 }
