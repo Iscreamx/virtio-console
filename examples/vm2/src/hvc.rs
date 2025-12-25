@@ -53,3 +53,15 @@ pub fn hvc_unestablish_connect(args: &[u64]) -> isize {
         args.get(4).copied().unwrap_or(0),
     )
 }
+
+pub fn hvc_send_ipi(target_vm_id: usize, target_vcpu_id: usize, vector: usize) -> isize {
+    trigger_hypercall(
+        HyperCallCode::HIVCSendIPI, 
+        3,                          // 参数数量: 3
+        target_vm_id as u64,        // arg1 -> x2
+        target_vcpu_id as u64,      // arg2 -> x3
+        vector as u64,              // arg3 -> x4
+        0,                          // arg4 (unused)
+        0,                          // arg5 (unused)
+    )
+}
